@@ -40,20 +40,18 @@ function get_card_tags(PDO $db, int $zettel_id): array {
 function sync_card_tags(PDO $db, int $zettel_id, array $tag_names): void {
     $tag_names = array_filter(array_map('trim', $tag_names));
     if (empty($tag_names)) {
-        // 清空关联
         $db->prepare("DELETE FROM zettel_tag WHERE zettel_id = ?")->execute([$zettel_id]);
         return;
     }
 
-    $db->beginTransaction();
+    // 不再开启新事务，依赖调用方的事务
+    // $db->beginTransaction();   ← 删除这行
     try {
-        // 删除旧关联
         $db->prepare("DELETE FROM zettel_tag WHERE zettel_id = ?")->execute([$zettel_id]);
 
         foreach ($tag_names as $name) {
             if ($name === '') continue;
 
-            // 查找或创建 tag
             $stmt = $db->prepare("SELECT id FROM tag WHERE name = ? COLLATE NOCASE");
             $stmt->execute([$name]);
             $tag_id = $stmt->fetchColumn();
@@ -68,9 +66,11 @@ function sync_card_tags(PDO $db, int $zettel_id, array $tag_names): void {
                ->execute([$zettel_id, $tag_id]);
         }
 
-        $db->commit();
+        // 不再 commit，交给外层
+        // $db->commit();   ← 删除这行
     } catch (Exception $e) {
-        $db->rollBack();
+        // 也不 rollback，交给外层统一处理
+        // $db->rollBack();   ← 删除这行
         throw $e;
     }
 }
