@@ -68,8 +68,6 @@ CREATE VIRTUAL TABLE zettel_fts USING fts5(
     content,
     tags_joined   UNINDEXED,          -- 用空格分隔的所有 tag 名稱
 
-    content       = 'zettel',         -- 指向實體表
-    content_rowid = 'id',
     tokenize      = 'unicode61'       -- 適合中文、日文等多語言
 );
 
