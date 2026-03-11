@@ -1,18 +1,20 @@
 <?php
-// memo/index.php
+// tag.php - 按标签查看卡片
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/func.php';
 
-$db = get_db();   // 来自 db.php，返回 PDO 对象
+$db = get_db();
+
+$tag_name = trim($_GET['name'] ?? '');
+
+if ($tag_name === '') {
+    header("Location: index.php");
+    exit;
+}
 
 // ================================================
-// 参数获取（简单版：页码 + 每页条数）
-$page = max(1, (int)($_GET['page'] ?? 1));
-$per_page = 20;
-$offset = ($page - 1) * $per_page;
-
-// ================================================
-// 主查询：最近更新的卡片 + 标签
+// 查询该标签下的所有卡片
 $stmt = $db->prepare("
     SELECT
         z.id,
@@ -21,26 +23,18 @@ $stmt = $db->prepare("
         z.created_at,
         z.updated_at,
         z.reading_state,
-        GROUP_CONCAT(t.name, '、') AS tags
+        (SELECT GROUP_CONCAT(t2.name, '、') 
+         FROM zettel_tag zt2 
+         JOIN tag t2 ON t2.id = zt2.tag_id 
+         WHERE zt2.zettel_id = z.id) AS tags
     FROM zettel z
-    LEFT JOIN zettel_tag zt ON zt.zettel_id = z.id
-    LEFT JOIN tag t ON t.id = zt.tag_id
-    GROUP BY z.id
+    JOIN zettel_tag zt ON zt.zettel_id = z.id
+    JOIN tag t ON t.id = zt.tag_id
+    WHERE t.name = ? COLLATE NOCASE
     ORDER BY z.updated_at DESC
-    LIMIT :limit OFFSET :offset
 ");
-
-$stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
-$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-$stmt->execute();
-
+$stmt->execute([$tag_name]);
 $cards = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// ================================================
-// 统计总条数（用于简单分页）
-$count_stmt = $db->query("SELECT COUNT(*) FROM zettel");
-$total = $count_stmt->fetchColumn();
-$total_pages = max(1, ceil($total / $per_page));
 
 ?>
 <!DOCTYPE html>
@@ -48,7 +42,7 @@ $total_pages = max(1, ceil($total / $per_page));
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>卡片盒 - 首页</title>
+  <title>标签: <?= htmlspecialchars($tag_name) ?> - 卡片盒</title>
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -94,48 +88,18 @@ $total_pages = max(1, ceil($total / $per_page));
       text-decoration: none;
     }
     .actions a:hover { text-decoration: underline; }
-    .pagination {
-      margin: 2rem 0;
-      text-align: center;
-    }
-    .pagination a {
-      margin: 0 0.4rem;
-      padding: 0.4rem 0.8rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      text-decoration: none;
-    }
-    .pagination a.active {
-      background: #0066cc;
-      color: white;
-      border-color: #0066cc;
-    }
-    .new-btn {
-      display: inline-block;
-      background: #28a745;
-      color: white;
-      padding: 0.6rem 1.2rem;
-      border-radius: 6px;
-      text-decoration: none;
-      margin-bottom: 1.5rem;
-    }
   </style>
 </head>
 <body>
 
-<h1>卡片盒</h1>
-
-<form action="search.php" method="get" style="margin-bottom:2rem;">
-    <input type="search" name="q" placeholder="搜索卡片（支持全文搜索）" style="width:300px;padding:0.6em;">
-    <button type="submit">搜索</button>
-</form>
+<h1>标签：<?= htmlspecialchars($tag_name) ?></h1>
 
 <p>
-  <a href="edit.php" class="new-btn">+ 新建卡片</a>
+  <a href="index.php" style="color: #666; text-decoration: none;">&larr; 返回首页</a>
 </p>
 
 <?php if (empty($cards)): ?>
-  <p style="color:#777;">还没有任何卡片……</p>
+  <p style="color:#777;">该标签下还没有任何卡片……</p>
 <?php else: ?>
 
   <?php foreach ($cards as $card): ?>
@@ -166,33 +130,9 @@ $total_pages = max(1, ceil($total / $per_page));
     <div class="actions" style="margin-top:1rem;">
       <a href="view.php?id=<?= (int)$card['id'] ?>">查看</a>
       <a href="edit.php?id=<?= (int)$card['id'] ?>">编辑</a>
-      <a href="delete.php?id=<?= (int)$card['id'] ?>"
-         onclick="return confirm('确定要删除这张卡片吗？')">删除</a>
     </div>
   </div>
   <?php endforeach; ?>
-
-  <!-- 简单分页 -->
-  <?php if ($total_pages > 1): ?>
-  <div class="pagination">
-    <?php if ($page > 1): ?>
-      <a href="?page=<?= $page-1 ?>">&laquo; 上一页</a>
-    <?php endif; ?>
-
-    <?php
-    $start = max(1, $page - 2);
-    $end   = min($total_pages, $page + 2);
-    for ($i = $start; $i <= $end; $i++): ?>
-      <a href="?page=<?= $i ?>" class="<?= $i === $page ? 'active' : '' ?>">
-        <?= $i ?>
-      </a>
-    <?php endfor; ?>
-
-    <?php if ($page < $total_pages): ?>
-      <a href="?page=<?= $page+1 ?>">下一页 &raquo;</a>
-    <?php endif; ?>
-  </div>
-  <?php endif; ?>
 
 <?php endif; ?>
 

@@ -24,7 +24,8 @@ $incoming = get_incoming_links($db, $id);
 <style>
     body { font-family:system-ui; max-width:900px; margin:2rem auto; line-height:1.7; }
     .meta { color:#555; font-size:0.95em; margin:0.8em 0; }
-    .tags span, .links a { background:#f0f4f8; padding:4px 9px; border-radius:5px; margin:0 0.4em 0.4em 0; display:inline-block; }
+    .tags span, .tags a, .links a { background:#f0f4f8; padding:4px 9px; border-radius:5px; margin:0 0.4em 0.4em 0; display:inline-block; text-decoration: none; color: #336; }
+    .tags a:hover, .links a:hover { background: #e0e8f0; }
     .section { margin:2rem 0; border-top:1px solid #eee; padding-top:1.5rem; }
 </style>
 </head>
@@ -40,9 +41,9 @@ $incoming = get_incoming_links($db, $id);
 </div>
 
 <?php if ($tags): ?>
-<div>
+<div class="tags">
     标签：<?php foreach ($tags as $name): ?>
-        <span><?= htmlspecialchars($name) ?></span>
+        <a href="tag.php?name=<?= urlencode($name) ?>"><?= htmlspecialchars($name) ?></a>
     <?php endforeach; ?>
 </div>
 <?php endif; ?>

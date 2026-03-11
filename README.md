@@ -70,7 +70,7 @@ server {
     location ^~ /data/ { deny all; return 404; }
 
     # 只允许执行特定的入口文件
-    location ~ ^/(index\.php|edit\.php|view\.php|delete\.php|search\.php)$ {
+    location ~ ^/(index\.php|edit\.php|view\.php|delete\.php|search\.php|tag\.php)$ {
         try_files $uri =404;
         fastcgi_pass memo;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -86,6 +86,7 @@ server {
 - `index.php`: 首页列表，支持分页和最近更新排序。
 - `edit.php`: 新建和编辑卡片。
 - `view.php`: 查看卡片详情（含渲染后的 Markdown 内容）。
+- `tag.php`: 查看特定标签下的所有卡片。
 - `search.php`: 搜索功能。
 - `func.php`: 核心业务逻辑函数。
 - `db.php`: 数据库连接配置。
