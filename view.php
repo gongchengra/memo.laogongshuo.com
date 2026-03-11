@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/func.php';
-require_once __DIR__ . '/Parsedown.php';
 
 $db = get_db();
 
@@ -16,10 +15,6 @@ if (!$card) die("卡片不存在");
 $tags     = get_card_tags($db, $id);
 $outgoing = get_outgoing_links($db, $id);
 $incoming = get_incoming_links($db, $id);
-
-$Parsedown = new Parsedown();
-$Parsedown->setSafeMode(true); // 安全模式，过滤掉 HTML 标签
-$card_content_html = $Parsedown->text($card['content']);
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -52,8 +47,8 @@ $card_content_html = $Parsedown->text($card['content']);
 </div>
 <?php endif; ?>
 
-<div style="margin:2rem 0; padding:1.2rem; background:#fafafa; border:1px solid #eee; border-radius:8px;">
-<?= $card_content_html ?>
+<div style="margin:2rem 0; padding:1.2rem; background:#fafafa; border:1px solid #eee; border-radius:8px; white-space:pre-wrap;">
+<?= nl2br(htmlspecialchars($card['content'])) ?>
 </div>
 
 <div class="section">
