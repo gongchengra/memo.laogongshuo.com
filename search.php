@@ -8,19 +8,39 @@ $q = trim($_GET['q'] ?? '');
 $results = [];
 
 if ($q !== '') {
+    // 使用 LIKE 模糊搜尋 title + content + tags_joined
+    // %q% = 包含 q 的任意位置
+    $like_term = '%' . str_replace(['%', '_'], ['\%', '\_'], $q) . '%';
+
     $stmt = $db->prepare("
         SELECT 
-            z.id, z.card_id, z.title,
-            snippet(zettel_fts, 2, '<mark>', '</mark>', '', 35) AS content_snippet,
-            zettel_fts.rank
-        FROM zettel_fts
-        JOIN zettel z ON z.id = zettel_fts.rowid
-        WHERE zettel_fts MATCH ?
-        ORDER BY rank
+            z.id, z.card_id, z.title, z.content,
+            CASE 
+                WHEN z.title LIKE ? THEN 1
+                WHEN z.content LIKE ? THEN 2
+                ELSE 3
+            END AS match_priority
+        FROM zettel z
+        LEFT JOIN zettel_fts f ON f.rowid = z.id
+        WHERE z.title LIKE ? 
+           OR z.content LIKE ? 
+           OR COALESCE(f.tags_joined, '') LIKE ?
+        ORDER BY match_priority ASC, z.updated_at DESC
         LIMIT 30
     ");
-    $stmt->execute([$q]);
+
+    $stmt->execute([$like_term, $like_term, $like_term, $like_term, $like_term]);
     $results = $stmt->fetchAll();
+
+    // 簡單高亮（可選）
+    foreach ($results as &$r) {
+        $r['content_snippet'] = preg_replace(
+            '/(' . preg_quote($q, '/') . ')/iu',
+            '<mark>$1</mark>',
+            substr($r['content'], 0, 200) . (strlen($r['content']) > 200 ? '...' : '')
+        );
+    }
+    unset($r);
 }
 ?>
 <!DOCTYPE html>
@@ -53,7 +73,7 @@ if ($q !== '') {
             <?= htmlspecialchars($r['title'] ?: '(无标题)') ?>
         </a>
         <div style="margin-top:0.6em;color:#555;">
-            <?= htmlspecialchars($r['content_snippet'] ?: '...') ?>
+            <?= $r['content_snippet'] ?: '...' ?>
         </div>
     </div>
     <?php endforeach; ?>
