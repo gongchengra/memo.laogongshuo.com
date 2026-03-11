@@ -53,7 +53,7 @@ if ($q !== '') {
             <?= htmlspecialchars($r['title'] ?: '(无标题)') ?>
         </a>
         <div style="margin-top:0.6em;color:#555;">
-            <?= $r['content_snippet'] ?: '...' ?>
+            <?= htmlspecialchars($r['content_snippet'] ?: '...') ?>
         </div>
     </div>
     <?php endforeach; ?>

@@ -29,12 +29,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($id > 0) {
                 // 更新
-                $stmt = $db->prepare("
-                    UPDATE zettel SET 
-                        title = ?, content = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                ");
-                $stmt->execute([$title, $content, $id]);
+                $old_card_data = $db->query("SELECT title, content FROM zettel WHERE id=$id")->fetch();
+                $old_tags = array_keys(get_card_tags($db, $id));
+                $old_links = array_column(get_outgoing_links($db, $id), 'id');
+
+                $is_content_changed = ($old_card_data['title'] !== $title) || ($old_card_data['content'] !== $content);
+
+                sync_card_tags($db, $id, $tag_names);
+
+                $db->prepare("DELETE FROM zettel_link WHERE from_zettel_id = ?")->execute([$id]);
+                $new_link_ids = [];
+                foreach ($link_ids as $target_card_id) {
+                    if ($target_card_id === $card_id) continue;
+                    $stmt = $db->prepare("SELECT id FROM zettel WHERE card_id = ?");
+                    $stmt->execute([$target_card_id]);
+                    $to_id = $stmt->fetchColumn();
+                    if ($to_id && $to_id != $id) {
+                        $db->prepare("INSERT OR IGNORE INTO zettel_link (from_zettel_id, to_zettel_id) VALUES (?, ?)")->execute([$id, $to_id]);
+                        $new_link_ids[] = $to_id;
+                    }
+                }
+
+                $is_relations_changed = (count($old_tags) !== count($tag_names)) || array_diff($old_tags, array_keys(get_card_tags($db, $id))) || 
+                                        (count($old_links) !== count($new_link_ids)) || array_diff($old_links, $new_link_ids);
+
+                if ($is_content_changed || $is_relations_changed) {
+                    $stmt = $db->prepare("UPDATE zettel SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+                    $stmt->execute([$title, $content, $id]);
+                } else {
+                    $stmt = $db->prepare("UPDATE zettel SET title = ?, content = ? WHERE id = ?");
+                    $stmt->execute([$title, $content, $id]);
+                }
                 $zettel_id = $id;
             } else {
                 // 新建
@@ -47,24 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $zettel_id = $db->lastInsertId();
             }
 
-            // 处理标签
-            sync_card_tags($db, $zettel_id, $tag_names);
 
-            // 处理链接（先清空旧的，再插入新的）
-            $db->prepare("DELETE FROM zettel_link WHERE from_zettel_id = ?")->execute([$zettel_id]);
-
-            foreach ($link_ids as $target_card_id) {
-                if ($target_card_id === $card_id) continue; // 避免自链
-                $stmt = $db->prepare("SELECT id FROM zettel WHERE card_id = ?");
-                $stmt->execute([$target_card_id]);
-                $to_id = $stmt->fetchColumn();
-                if ($to_id && $to_id != $zettel_id) {
-                    $db->prepare("
-                        INSERT OR IGNORE INTO zettel_link (from_zettel_id, to_zettel_id, link_type)
-                        VALUES (?, ?, 'related')
-                    ")->execute([$zettel_id, $to_id]);
-                }
-            }
 
             $db->commit();
             header("Location: view.php?id=$zettel_id");
