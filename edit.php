@@ -6,20 +6,28 @@ $db = get_db();
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $card = null;
+$is_new = ($id === 0);
 
-if ($id > 0) {
+if (!$is_new) {
     $stmt = $db->prepare("SELECT * FROM zettel WHERE id = ?");
     $stmt->execute([$id]);
     $card = $stmt->fetch();
-    if (!$card) die("卡片不存在");
+    if (!$card) {
+        die("卡片不存在");
+    }
 }
 
+$error = null;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $card_id       = trim($_POST['card_id'] ?? '');
-    $title         = trim($_POST['title'] ?? '');
-    $content       = trim($_POST['content'] ?? '');
-    $tag_names     = array_unique(array_filter(array_map('trim', explode(',', $_POST['tags'] ?? ''))));
-    $link_ids      = array_unique(array_filter(array_map('trim', explode(',', $_POST['links'] ?? ''))));
+    $card_id   = trim($_POST['card_id'] ?? '');
+    $title     = trim($_POST['title'] ?? '');
+    $content   = trim($_POST['content'] ?? '');
+    $tags_str  = trim($_POST['tags'] ?? '');
+    $links_str = trim($_POST['links'] ?? '');
+
+    $tag_names = array_unique(array_filter(array_map('trim', explode(',', $tags_str))));
+    $link_ids  = array_unique(array_filter(array_map('trim', explode(',', $links_str))));
 
     if ($content === '') {
         $error = "内容不能为空";
@@ -27,70 +35,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $db->beginTransaction();
 
-            if ($id > 0) {
+            if (!$is_new) {
                 // 更新模式
                 $zettel_id = $id;
-                
-                // 获取旧数据用于比较
-                $old_tags = array_values(get_card_tags($db, $id));
-                $old_links = array_column(get_outgoing_links($db, $id), 'card_id');
-                
+
                 // 同步标签
                 sync_card_tags($db, $zettel_id, $tag_names);
 
-                // 同步链接
-                $db->prepare("DELETE FROM zettel_link WHERE from_zettel_id = ?")->execute([$zettel_id]);
-                $new_links = [];
+                // 清空旧链接
+                $db->prepare("DELETE FROM zettel_link WHERE from_zettel_id = ?")
+                   ->execute([$zettel_id]);
+
+                // 添加新链接
                 foreach ($link_ids as $target_card_id) {
-                    if ($target_card_id === $card_id) continue;
+                    if ($target_card_id === $card_id) {
+                        continue; // 避免自链接
+                    }
                     $stmt = $db->prepare("SELECT id FROM zettel WHERE card_id = ?");
                     $stmt->execute([$target_card_id]);
                     $to_id = $stmt->fetchColumn();
                     if ($to_id && $to_id != $zettel_id) {
-                        $db->prepare("INSERT OR IGNORE INTO zettel_link (from_zettel_id, to_zettel_id) VALUES (?, ?)")
-                           ->execute([$zettel_id, $to_id]);
-                        $new_links[] = $target_card_id;
+                        $db->prepare("
+                            INSERT OR IGNORE INTO zettel_link 
+                            (from_zettel_id, to_zettel_id, link_type) 
+                            VALUES (?, ?, 'related')
+                        ")->execute([$zettel_id, $to_id]);
                     }
                 }
 
-                // 检查内容或关联是否发生变化
-                $new_tags = $tag_names;
-                sort($old_tags);
-                sort($new_tags);
-                
-                sort($old_links);
-                sort($new_links);
-
-                $changed = ($card['title'] !== $title) || 
-                           ($card['content'] !== $content) || 
-                           ($old_tags !== $new_tags) || 
-                           ($old_links !== $new_links);
-
-                if ($changed) {
-                    $stmt = $db->prepare("UPDATE zettel SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
-                    $stmt->execute([$title, $content, $zettel_id]);
-                } else {
-                    $stmt = $db->prepare("UPDATE zettel SET title = ?, content = ? WHERE id = ?");
-                    $stmt->execute([$title, $content, $zettel_id]);
-                }
+                // 总是更新（简化逻辑，笔记系统通常希望 updated_at 反映最后编辑时间）
+                $stmt = $db->prepare("
+                    UPDATE zettel 
+                    SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = ?
+                ");
+                $stmt->execute([$title, $content, $zettel_id]);
             } else {
                 // 新建模式
-                if ($card_id === '') $card_id = generate_card_id();
-                $stmt = $db->prepare("INSERT INTO zettel (card_id, title, content) VALUES (?, ?, ?)");
+                if ($card_id === '') {
+                    $card_id = generate_card_id();
+                }
+
+                $stmt = $db->prepare("
+                    INSERT INTO zettel (card_id, title, content) 
+                    VALUES (?, ?, ?)
+                ");
                 $stmt->execute([$card_id, $title, $content]);
                 $zettel_id = $db->lastInsertId();
 
                 // 同步标签
                 sync_card_tags($db, $zettel_id, $tag_names);
 
-                // 同步链接
+                // 添加链接
                 foreach ($link_ids as $target_card_id) {
                     $stmt = $db->prepare("SELECT id FROM zettel WHERE card_id = ?");
                     $stmt->execute([$target_card_id]);
                     $to_id = $stmt->fetchColumn();
                     if ($to_id && $to_id != $zettel_id) {
-                        $db->prepare("INSERT OR IGNORE INTO zettel_link (from_zettel_id, to_zettel_id) VALUES (?, ?)")
-                           ->execute([$zettel_id, $to_id]);
+                        $db->prepare("
+                            INSERT OR IGNORE INTO zettel_link 
+                            (from_zettel_id, to_zettel_id, link_type) 
+                            VALUES (?, ?, 'related')
+                        ")->execute([$zettel_id, $to_id]);
                     }
                 }
             }
@@ -98,53 +104,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->commit();
             header("Location: view.php?id=$zettel_id");
             exit;
+
         } catch (Exception $e) {
-            if ($db->inTransaction()) $db->rollBack();
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
             $error = "保存失败：" . $e->getMessage();
+            // 建议记录到日志
+            error_log("保存卡片失败: " . $e->getMessage() . "\n" . $e->getTraceAsString());
         }
     }
 }
+
+// ────────────────────────────────────────────────
+// 准备表单默认值（新建时不要调用依赖 id 的函数）
+$default_card_id = $is_new ? generate_card_id() : ($card['card_id'] ?? '');
+$default_title   = $card['title']   ?? '';
+$default_content = $card['content'] ?? '';
+
+$default_links = '';
+$default_tags  = '';
+
+if (!$is_new && $id > 0) {
+    $out_links = get_outgoing_links($db, $id);
+    $default_links = implode(',', array_column($out_links, 'card_id'));
+
+    $tags_arr = get_card_tags($db, $id);
+    $default_tags = implode(',', $tags_arr);
+}
 ?>
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<title><?= $card ? '编辑' : '新建' ?>卡片</title>
-<style>
-    body { font-family:system-ui; max-width:900px; margin:2rem auto; }
-    textarea { width:100%; height:400px; font-family:monospace; padding:0.8em; }
-    input[type=text] { width:100%; padding:0.6em; margin:0.5em 0; }
-    label { display:block; margin:1.2em 0 0.3em; font-weight:bold; }
-    .error { color:red; }
-</style>
+    <meta charset="UTF-8">
+    <title><?= $is_new ? '新建卡片' : '编辑卡片 ' . htmlspecialchars($default_card_id) ?></title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+        label { display: block; margin: 1.5rem 0 0.4rem; font-weight: bold; }
+        input[type="text"], textarea {
+            width: 100%; padding: 0.7em; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;
+        }
+        textarea { height: 420px; font-family: monospace; font-size: 1.05em; line-height: 1.5; }
+        .error { color: #d32f2f; margin: 1rem 0; padding: 0.8rem; background: #ffebee; border-radius: 4px; }
+        .actions { margin-top: 2.5rem; }
+        button { padding: 0.7em 1.6em; background: #1976d2; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #1565c0; }
+    </style>
 </head>
 <body>
 
-<h1><?= $card ? '编辑卡片 ' . htmlspecialchars($card['card_id']) : '新建卡片' ?></h1>
+<h1><?= $is_new ? '新建卡片' : '编辑卡片' ?></h1>
 
-<?php if (isset($error)): ?>
-    <p class="error"><?= htmlspecialchars($error) ?></p>
+<?php if ($error): ?>
+    <div class="error"><?= htmlspecialchars($error) ?></div>
 <?php endif; ?>
 
 <form method="post">
-    <label>卡片ID（建议自动生成）：</label>
-    <input type="text" name="card_id" value="<?= htmlspecialchars($card['card_id'] ?? generate_card_id()) ?>" required>
+    <label>卡片ID（建议保持自动生成格式）：</label>
+    <input type="text" name="card_id" value="<?= htmlspecialchars($default_card_id) ?>" required>
 
     <label>标题（可选）：</label>
-    <input type="text" name="title" value="<?= htmlspecialchars($card['title'] ?? '') ?>">
+    <input type="text" name="title" value="<?= htmlspecialchars($default_title) ?>">
 
-    <label>正文：</label>
-    <textarea name="content" required><?= htmlspecialchars($card['content'] ?? '') ?></textarea>
+    <label>正文（核心内容，用自己的话写）：</label>
+    <textarea name="content" required><?= htmlspecialchars($default_content) ?></textarea>
 
-    <label>链接到的卡片ID（用半角逗号分隔，例如：20260311092345,20260311092401）：</label>
-    <input type="text" name="links" value="<?= htmlspecialchars(implode(',', array_column(get_outgoing_links($db, $id), 'card_id'))) ?>">
+    <label>链接到的卡片ID（用半角逗号分隔）：</label>
+    <input type="text" name="links" value="<?= htmlspecialchars($default_links) ?>">
 
-    <label>标签（用半角逗号分隔）：</label>
-    <input type="text" name="tags" value="<?= htmlspecialchars(implode(',', get_card_tags($db, $id))) ?>">
+    <label>标签（用半角逗号分隔，例如：系统理论,二阶控制,沟通）：</label>
+    <input type="text" name="tags" value="<?= htmlspecialchars($default_tags) ?>">
 
-    <div style="margin:2rem 0;">
+    <div class="actions">
         <button type="submit">保存</button>
-        <a href="index.php" style="margin-left:2rem;">返回列表</a>
+          <a href="index.php">返回列表</a>
     </div>
 </form>
 
