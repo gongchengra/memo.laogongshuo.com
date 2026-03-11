@@ -94,12 +94,7 @@ END;
 -- 更新卡片時同步（標題或內容變更）
 CREATE TRIGGER zettel_update_fts AFTER UPDATE OF title, content ON zettel BEGIN
     -- 先刪除舊索引
-    INSERT INTO zettel_fts(zettel_fts, rowid, title, content, tags_joined)
-    VALUES('delete', old.id, old.title, old.content,
-        (SELECT GROUP_CONCAT(tag.name, ' ')
-         FROM zettel_tag zt JOIN tag ON zt.tag_id = tag.id
-         WHERE zt.zettel_id = old.id)
-    );
+    INSERT INTO zettel_fts(zettel_fts, rowid) VALUES('delete', old.id);
 
     -- 插入新索引
     INSERT INTO zettel_fts(rowid, title, content, tags_joined)
@@ -118,12 +113,7 @@ END;
 
 -- 刪除卡片時同步移除 FTS 索引
 CREATE TRIGGER zettel_delete_fts AFTER DELETE ON zettel BEGIN
-    INSERT INTO zettel_fts(zettel_fts, rowid, title, content, tags_joined)
-    VALUES('delete', old.id, old.title, old.content,
-        (SELECT GROUP_CONCAT(tag.name, ' ')
-         FROM zettel_tag zt JOIN tag ON zt.tag_id = tag.id
-         WHERE zt.zettel_id = old.id)
-    );
+    INSERT INTO zettel_fts(zettel_fts, rowid) VALUES('delete', old.id);
 END;
 
 -- 當標籤關聯變更時，也需要更新 FTS 的 tags_joined 欄位
