@@ -80,7 +80,7 @@ function sync_card_tags(PDO $db, int $zettel_id, array $tag_names): void {
  */
 function get_outgoing_links(PDO $db, int $zettel_id): array {
     $stmt = $db->prepare("
-        SELECT 
+        SELECT
             z.id, z.card_id, z.title, l.link_type, l.context_note
         FROM zettel_link l
         JOIN zettel z ON z.id = l.to_zettel_id
@@ -96,7 +96,7 @@ function get_outgoing_links(PDO $db, int $zettel_id): array {
  */
 function get_incoming_links(PDO $db, int $zettel_id): array {
     $stmt = $db->prepare("
-        SELECT 
+        SELECT
             z.id, z.card_id, z.title, l.link_type, l.context_note
         FROM zettel_link l
         JOIN zettel z ON z.id = l.from_zettel_id
@@ -105,4 +105,29 @@ function get_incoming_links(PDO $db, int $zettel_id): array {
     ");
     $stmt->execute([$zettel_id]);
     return $stmt->fetchAll();
+}
+
+// func.php 末尾新增
+require_once __DIR__ . '/vendor/autoload.php';
+use Fukuball\Jieba\Jieba;
+
+// 建议在应用启动时初始化一次（或在 db.php 里全局初始化）
+function init_jieba() {
+    static $initialized = false;
+    if (!$initialized) {
+        Jieba::init();
+        $initialized = true;
+    }
+}
+
+/**
+ * 生成用于搜索的分词字符串
+ */
+function generate_search_content(string $title, string $content): string {
+    init_jieba();
+    $text = trim($title . ' ' . $content);
+    if ($text === '') return '';
+
+    $words = Jieba::cutForSearch($text); // 或 Jieba::cut($text, true) 更精细
+    return implode(' ', array_filter($words)); // 用空格连接分词结果
 }

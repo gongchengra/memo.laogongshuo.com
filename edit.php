@@ -104,6 +104,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
+            // 生成分词内容
+            $search_content = generate_search_content($title, $content);
+
+            // 更新 zettel 表的 search_content
+            $db->prepare("
+                UPDATE zettel SET search_content = ? WHERE id = ?
+            ")->execute([$search_content, $zettel_id]);
+
+            // 同步到 FTS5（INSERT OR REPLACE 覆盖旧记录）
+            $db->prepare("
+                INSERT OR REPLACE INTO zettel_fts (rowid, title, search_content)
+                VALUES (?, ?, ?)
+            ")->execute([$zettel_id, $title, $search_content]);
+
             $db->commit();
             header("Location: view.php?id=$zettel_id");
             exit;
